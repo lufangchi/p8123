@@ -53,7 +53,6 @@ vars_med_use_optional<-c(
 
 vars_med_history <- c(
   "bp_sys_mean", "bp_dia_mean",
-  "htn_jnc7", "htn_accaha", "htn_escesh",
   "htn_aware",
   "htn_resistant_jnc7", "htn_resistant_accaha"
 )
