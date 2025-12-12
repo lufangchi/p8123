@@ -79,9 +79,12 @@ binary_vars <- c(
 for (v in binary_vars) {
   df[[v]] <- factor(df[[v]], levels = c("No", "Yes"))
 }
+# outcome variable -> 0/1
+df$bp_control_140_90 <- ifelse(df$bp_control_140_90 %in% c("Yes", 1), 1, 0)
 
 str(df)
 
+# Create survey object
 
 svy <- svydesign(
   id = ~svy_psu,
@@ -91,8 +94,7 @@ svy <- svydesign(
   nest = TRUE
 )
 
-
-
+# A sample graph
 svyby(~bp_control_140_90, ~svy_year, svy, svymean)
 bp_trend <- svyby(~bp_control_140_90, ~svy_year, svy, svymean, vartype = "ci")
 
@@ -113,6 +115,18 @@ ggplot(bp_trend, aes(x = svy_year, y = mean)) +
     title = "Survey-Weighted Trend in BP Control Over Time"
   )
 
+# A trial model run
+try_fit <- svyglm(
+  bp_control_140_90 ~ svy_year +
+    demo_age_cat + demo_gender + demo_race +
+    cc_smoke + cc_bmi +
+    cc_diabetes + cc_ckd + cc_cvd_any +
+    bp_med_use + bp_med_n_class + bp_med_n_pills + bp_med_combination +
+    htn_aware + htn_resistant_jnc7 + htn_resistant_accaha,
+  design = svy,
+  family = quasibinomial()
+)
+summary(try_fit)
 
 
 
