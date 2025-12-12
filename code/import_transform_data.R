@@ -97,14 +97,12 @@ svy <- svydesign(
 # A sample graph
 svyby(~bp_control_140_90, ~svy_year, svy, svymean)
 bp_trend <- svyby(~bp_control_140_90, ~svy_year, svy, svymean, vartype = "ci")
-
 bp_trend <- bp_trend %>%
   rename(
-    mean  = `bp_control_140_90Yes`,
-    ci_l  = `ci_l.bp_control_140_90Yes`,
-    ci_u  = `ci_u.bp_control_140_90Yes`
+    mean = bp_control_140_90
   )
-ggplot(bp_trend, aes(x = svy_year, y = mean)) +
+
+p <- ggplot(bp_trend, aes(x = svy_year, y = mean)) +
   geom_point() +
   geom_line(group = 1) +
   geom_errorbar(aes(ymin = ci_l, ymax = ci_u), width = 0.1) +
@@ -114,6 +112,9 @@ ggplot(bp_trend, aes(x = svy_year, y = mean)) +
     y = "BP Control Rate (Proportion)",
     title = "Survey-Weighted Trend in BP Control Over Time"
   )
+
+print(p)
+ggsave("./figure/bp_trend.png", p, width = 8, height = 5, dpi = 300)
 
 # A trial model run
 try_fit <- svyglm(
