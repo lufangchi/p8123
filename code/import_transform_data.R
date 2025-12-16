@@ -1,7 +1,6 @@
 library(cardioStatsUSA)
 library(tidyverse)
 library(survey)
-library(ggplot)
 
 df = read.csv("./data/df_analysis.csv")
 colnames(df)
