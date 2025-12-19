@@ -1,0 +1,937 @@
+---
+title: "Trends and Determinants of Declining Blood Pressure Control"
+author: "Group 5"
+date: "2025-12-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+# Load packages
+```{r include=FALSE, warning=FALSE, message=FALSE, echo=TRUE}
+
+library(cardioStatsUSA)
+library(tidyverse)
+library(survey)
+library(tidyverse)
+library(readxl)
+library(descriptr)
+library(modelsummary) 
+library(mice)
+library(mitools) 
+library(svyROC) 
+library(broom) 
+library(MASS)
+library(nrba)
+library(svydiags)
+library(flextable)
+library(purrr)
+library(gridExtra)
+library(grid)
+library(gtsummary)
+
+```
+
+
+# Load and extract data 
+```{r data, include=FALSE, echo=TRUE}
+
+########################### DATA EXPLORATION #########################################
+
+colnames(nhanes_data)
+#help(nhanes_data)
+
+table(nhanes_data$svy_subpop_htn)
+table(nhanes_data$demo_age_cat)
+table(nhanes_data$bp_control_140_90)
+table(nhanes_data$htn_jnc7)
+dim(nhanes_data)
+
+
+######################### SUBSET RELEVANT DATA ########################################
+
+df = nhanes_data[svy_subpop_htn == 1 & htn_jnc7 == "Yes"]
+dim(df)
+
+summary(df$demo_age_years)
+
+
+########################## DATA PREPARATION ###########################################
+
+vars_survey <- c(
+  "svy_id", "svy_psu", "svy_strata",
+  "svy_weight_mec", "svy_year"
+)
+
+vars_demo <- c(
+  "demo_age_years", "demo_age_cat",
+  "demo_gender", "demo_race"
+)
+
+vars_behavior <- c(
+  "cc_smoke"
+)
+
+vars_prior_dx <- c(
+  "cc_diabetes", "cc_ckd", "cc_bmi", "cc_cvd_any"
+)
+
+vars_med_use <- c(
+  "bp_med_use",
+  "bp_med_n_class",
+  "bp_med_n_pills",
+  "bp_med_combination"
+)
+
+vars_med_use_optional<-c(
+  "bp_med_ace", "bp_med_angioten", "bp_med_beta",
+  "bp_med_ccb", "bp_med_ccb_dh", "bp_med_ccb_ndh",
+  "bp_med_diur_thz", "bp_med_diur_loop",
+  "bp_med_diur_Ksparing", "bp_med_alpha",
+  "bp_med_central", "bp_med_aldo",
+  "bp_med_vasod", "bp_med_renin_inhibitors"
+)
+
+vars_med_history <- c(
+  "bp_sys_mean", "bp_dia_mean",
+  "htn_aware",
+  "htn_resistant_jnc7", "htn_resistant_accaha"
+)
+
+vars_outcome <- c(
+  "bp_control_140_90"
+)
+
+# Combine all variable groups
+vars_all <- c(
+  vars_survey,
+  vars_demo,
+  vars_behavior,
+  vars_prior_dx,
+  vars_med_use,
+  vars_med_history,
+  vars_outcome
+)
+
+################################ FINAL DATASET ########################################
+df_analysis <- df[, ..vars_all]
+
+dim(df_analysis)
+colnames(df_analysis) 
+
+#write.csv(df_analysis, file = "./data/df_analysis.csv", row.names = FALSE)
+
+```
+
+
+# Data wrangling and EDA
+```{r, include=FALSE, echo=TRUE}
+
+str(df_analysis)
+
+############################# CHECK CATEGORICAL VARIABLES #############################
+
+vars_to_check <- c(
+  "svy_year",
+  "demo_age_cat", "demo_gender", "demo_race",
+  "cc_smoke", "cc_diabetes", "cc_ckd", "cc_bmi", "cc_cvd_any",
+  "bp_med_use", "bp_med_n_class", "bp_med_n_pills", "bp_med_combination",
+  "htn_aware", "htn_resistant_jnc7", "htn_resistant_accaha"
+)
+
+
+for (v in vars_to_check) {
+  cat("----------", v, "----------\n")
+  
+  if (is.numeric(df_analysis[[v]]) && !all(df_analysis[[v]] %% 1 == 0, na.rm = TRUE)) {
+    print(summary(df_analysis[[v]]))
+    
+  } else if (is.numeric(df_analysis[[v]])) {
+    print(table(df_analysis[[v]], useNA = "ifany"))
+    
+  } else {
+    print(table(df_analysis[[v]], useNA = "ifany"))
+  }
+  
+  cat("\n")
+}
+
+
+############################## DATA REFORMATTING AND FACTOR REORDERING ##################################
+
+cardio_dat <- df_analysis %>%  mutate(cont_svy_yr = case_when(svy_year=="1999-2000"~1,
+                                                             svy_year=="2001-2002"~3,
+                                                             svy_year=="2003-2004"~5,
+                                                             svy_year=="2005-2006"~7,
+                                                             svy_year=="2007-2008"~9,
+                                                             svy_year=="2009-2010"~11,
+                                                             svy_year=="2011-2012"~13,
+                                                             svy_year=="2013-2014"~15,
+                                                             svy_year=="2015-2016"~17,
+                                                             svy_year=="2017-2020"~21),
+                                     
+                                      svy_year2= case_when(cont_svy_yr<7~"1999 - 2004",
+                                                           cont_svy_yr>=7 & cont_svy_yr<13~"2005 - 2010",
+                                                           cont_svy_yr>=13 & cont_svy_yr<17~"2011 - 2014",
+                                                           cont_svy_yr>=17~"2015 - 2020", 
+                                                           TRUE~svy_year),
+                               
+                                      svy_year = factor(svy_year),
+                                        
+                                      bp_med_n_class2 =  factor(
+                                                            case_when(bp_med_n_class=="Two"|
+                                                                      bp_med_n_class=="Four or more"| 
+                                                                      bp_med_n_class== "Three"~"Two or more", 
+                                                                      TRUE~bp_med_n_class), levels = c("None","One","Two or more")),
+                 
+                                      bp_med_n_pills2 = factor(
+                                                    case_when(bp_med_n_pills=="Two"|
+                                                              bp_med_n_pills=="Four or more"| 
+                                                              bp_med_n_pills== "Three"~"Two or more", 
+                                                              TRUE~bp_med_n_pills), levels = c("None","One","Two or more")),
+        
+                                     bp_control_140_90 = case_when(bp_control_140_90=="No"~0, 
+                                                                   bp_control_140_90=="Yes"~1),
+                                     
+                                     demo_gender = factor(demo_gender, levels=c("Men","Women")),
+                                     
+                                     demo_race = factor(demo_race, levels=c("Non-Hispanic White","Non-Hispanic Black","Hispanic","Non-Hispanic Asian","Other")),
+
+                                     cc_smoke = factor(cc_smoke,levels=c("Never","Former","Current")),
+                                     
+                                     cc_bmi = factor(cc_bmi,levels=c("<25","25 to <30","30 to <35","35+")),
+
+                                     bp_med_n_class = factor(bp_med_n_class,  levels = c("None","One","Two","Three","Four or more")),
+
+                                     bp_med_n_pills = factor(bp_med_n_pills, levels = c("None","One","Two","Three","Four or more")))
+
+                                    
+#view(cardio_dat)
+glimpse(cardio_dat) # check data structure
+
+```
+
+
+# EDA contd
+```{r}
+
+## Survey design object
+svy <- svydesign(
+  id = ~svy_psu,
+  strata = ~svy_strata,
+  weights = ~svy_weight_mec,
+  data = cardio_dat,
+  nest = TRUE
+)
+
+################################## Create Baseline tables ###############################################
+
+## Table 1. Baseline characteristics
+base_table <- svy %>% tbl_svysummary( include= c(demo_age_years,demo_age_cat,demo_gender,demo_race,cc_smoke,cc_bmi,cc_diabetes,cc_ckd,cc_cvd_any,bp_med_use,bp_med_n_class,bp_sys_mean,bp_dia_mean,htn_aware),
+  label = list(demo_age_cat = "Age (years): categorical",
+demo_age_years = "Age (years): Continuous",
+demo_gender = "Gender",
+demo_race = "Race",
+cc_smoke = "Smoking status",
+cc_bmi = "BMI",
+cc_diabetes = "Diabetes: Yes",
+cc_ckd = "Chronic kidney disease: Yes",
+cc_cvd_any = "Any cardiovascular disease: Yes",
+bp_med_use = "Self-reported antihypertensive medication use",
+bp_med_n_class = "Class of antihypertensive med",
+bp_med_n_pills = "Count of antihypertensive med",
+bp_sys_mean = "Average Systolic BP",
+bp_dia_mean = "Average Diastolic BP",
+htn_aware = "Hypertension awareness",
+htn_resistant_jnc7 = "Resistant hypertension: Yes"),
+  statistic = list(all_continuous() ~ "{mean} ({sd})",
+                   all_categorical()~"{p}%"),
+  digits = list(all_continuous() ~ 1,
+                   all_categorical()~1),
+  type = list(c(demo_age_years,bp_sys_mean,bp_dia_mean)~"continuous")) %>% 
+   modify_footnote(label = "Mean (SE); %",
+                   everything() ~ NA) %>% bold_labels() %>% modify_spanning_header(everything() ~ "**Table 1. Baseline Characteristics (survey-weighted)**")|> as_flex_table()
+
+base_table
+
+#flextable::save_as_docx(base_table, path ="./figure/baseline_table.docx")
+
+
+
+## TABLE 2: BP Control Rates by Key Predictors
+
+base_table2 <- svy %>%
+  update(bp_control_140_90_2 = factor(bp_control_140_90, labels=c('No BP control','BP control')))%>%
+   tbl_svysummary(by= bp_control_140_90_2, include= c(svy_year, demo_age_years,demo_age_cat,demo_gender,demo_race,cc_smoke,cc_bmi,cc_diabetes,cc_ckd,cc_cvd_any,bp_med_use,bp_med_n_class,bp_sys_mean,bp_dia_mean,htn_aware), percent="row",
+  label = list(demo_age_cat = "Age (years): categorical",
+demo_age_years = "Age (years): Continuous",
+demo_gender = "Gender",
+svy_year = "Year",
+demo_race = "Race",
+cc_smoke = "Smoking status",
+cc_bmi = "BMI",
+cc_diabetes = "Diabetes: Yes",
+cc_ckd = "Chronic kidney disease: Yes",
+cc_cvd_any = "Any cardiovascular disease: Yes",
+bp_med_use = "Self-reported antihypertensive medication use",
+bp_med_n_class = "Class of antihypertensive med",
+bp_med_n_pills = "Count of antihypertensive med",
+bp_sys_mean = "Average Systolic BP",
+bp_dia_mean = "Average Diastolic BP",
+htn_aware = "Hypertension awareness",
+htn_resistant_jnc7 = "Resistant hypertension: Yes"),
+  statistic = list(all_continuous() ~ "{mean} ({sd})",
+                   all_categorical()~"{p}%"),
+  digits = list(all_continuous() ~ 1,
+                   all_categorical()~1),
+  type = list(c(demo_age_years,bp_sys_mean,bp_dia_mean)~"continuous"))|> 
+  add_ci(statistic=list(all_categorical() ~ "[{conf.low}%, {conf.high}%]", 
+                        all_continuous() ~ "[{conf.low}, {conf.high}]"))%>% 
+     modify_column_hide(columns = c("ci_stat_1"))  |>
+   modify_footnote(label = "Mean (SE); %",
+                   everything() ~ NA) %>% bold_labels() %>% modify_spanning_header(everything() ~ "**Table 2. BP Control by key predictors (survey-weighted)**")|> as_flex_table()
+
+base_table2
+
+#flextable::save_as_docx(base_table2, path ="./figure/baseline_table2.docx")
+
+
+# FIGURE 1: BP Control Trend Over Time
+cat("FIGURE 1: BP Control Trend Over Time\n")
+
+bp_trend <- svyby(~bp_control_140_90, ~svy_year, svy, svymean, vartype = "ci")
+bp_trend <- bp_trend %>%
+  rename(mean = bp_control_140_90)
+
+p1 <- ggplot(bp_trend, aes(x = svy_year, y = mean)) +
+  geom_point(size = 3) +
+  geom_line(group = 1, linewidth = 1) +
+  geom_errorbar(aes(ymin = ci_l, ymax = ci_u), width = 0.1, linewidth = 0.8) +
+  theme_minimal() +
+  labs(
+    x = "Survey Cycle",
+    y = "BP Control Rate (Proportion)",
+    title = "Survey-Weighted Trend in BP Control Over Time"
+  ) +
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+p1
+#ggsave("./figure/figure1_bp_control_trend.png", p1, width = 10, height = 6, dpi = 300)
+#cat("Saved: ./figure/figure1_bp_control_trend.png\n\n")
+
+# FIGURE 2: BP Control by Race/Ethnicity
+cat("FIGURE 2: BP Control by Race/Ethnicity\n")
+
+bp_by_race_viz <- svyby(~bp_control_140_90, ~demo_race, svy, svymean, vartype = "ci")
+bp_by_race_viz <- bp_by_race_viz %>%
+  rename(mean = bp_control_140_90)
+
+p2 <- ggplot(bp_by_race_viz, aes(x = reorder(demo_race, mean), y = mean)) +
+  geom_col(fill = "steelblue", alpha = 0.7) +
+  geom_errorbar(aes(ymin = ci_l, ymax = ci_u), width = 0.2, linewidth = 0.8) +
+  theme_minimal() +
+  labs(
+    x = "Race/Ethnicity",
+    y = "BP Control Rate (Proportion)",
+    title = "BP Control Rate by Race/Ethnicity"
+  ) +
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_flip()
+
+p2
+#ggsave("./figure/figure2_bp_control_by_race.png", p2, width = 10, height = 6, dpi = 300)
+#cat("Saved: ./figure/figure2_bp_control_by_race.png\n")
+
+#cat("EDA COMPLETE\n")
+#cat("2 tables and 2 figures saved to ./figure/\n")
+
+
+```
+
+
+```{r}
+
+cardio_svy <- svydesign(
+  id = ~svy_psu,
+  strata = ~svy_strata,
+  weights = ~svy_weight_mec,
+  data = cardio_dat,
+  nest = TRUE)
+
+
+svyboxplot(demo_age_years~factor(bp_control_140_90), cardio_svy) # Age: no outlier
+#svyboxplot(bp_sys_mean~1, cardio_svy)
+#svyboxplot(bp_dia_mean~1, cardio_svy)
+
+
+# check if weight is scaled
+nrow(cardio_dat)
+sum(cardio_dat$svy_weight_mec) # weight is not scaled
+
+#svyquantile(~cont_svy_yr, cardio_svy, c(.25,.5,.75))
+
+```
+
+
+# Analysis
+## Bivariate relationships
+### Year
+```{r, include=FALSE, echo=TRUE}
+
+# Original categorical year
+yr_fit <- svyglm(
+  bp_control_140_90 ~ svy_year,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(yr_fit)
+
+# collapsed categorical year
+yr_fit2 <- svyglm(
+  bp_control_140_90 ~ svy_year2,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(yr_fit2)
+
+# continuous categorical year
+yr_fit3 <- svyglm(
+  bp_control_140_90 ~ cont_svy_yr,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(yr_fit3)
+
+```
+
+
+### Demographics
+```{r, include=FALSE, echo=TRUE}
+# Age categorical
+age_fit1 <- svyglm(
+  bp_control_140_90 ~ demo_age_cat,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(age_fit1)
+
+# Age continuous
+age_fit2 <- svyglm(
+  bp_control_140_90 ~ demo_age_years,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+
+#summary(age_fit2)
+#tidy(age_fit2, conf.int = TRUE) %>% mutate(OR = exp(estimate),
+#                                              conf_low = exp(conf.low),
+#                                              conf_high = exp(conf.high))
+
+
+# Race
+race_fit <- svyglm(
+  bp_control_140_90 ~ demo_race,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(race_fit)
+
+# Gender 
+gender_fit <- svyglm(
+  bp_control_140_90 ~ demo_gender,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(gender_fit)
+
+```
+
+### Health behaviors, prior diagnoses and medication use
+```{r, include=FALSE, echo=TRUE}
+
+# Smoking : significant
+smoke_fit <- svyglm(
+  bp_control_140_90 ~ cc_smoke,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(smoke_fit)
+
+
+# Diabetes (HbA1c ≥6.5 or medication/diagnosis): significant
+diabet_fit <- svyglm(
+  bp_control_140_90 ~ cc_diabetes,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(diabet_fit)
+
+# Chronic kidney disease (eGFR <60 or ACR >30 mg/g) : significant
+ckd_fit <- svyglm(
+  bp_control_140_90 ~ cc_ckd,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(ckd_fit)
+
+# BMI category (<25 / 25–<30 / 30–<35 / ≥35) : significant
+bmi_fit <- svyglm(
+  bp_control_140_90 ~ cc_bmi,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(bmi_fit)
+
+# History of CVD : significant
+cvd_fit <- svyglm(
+  bp_control_140_90 ~ cc_cvd_any,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(cvd_fit)
+
+
+## Medication use
+
+med_fit <- svyglm(
+  bp_control_140_90 ~ bp_med_use,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(med_fit)
+
+
+# medication class : significant
+class_fit <- svyglm(
+  bp_control_140_90 ~ bp_med_n_class,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(class_fit)
+
+
+# Specific meds: significant
+pill_fit <- svyglm(
+  bp_control_140_90 ~ bp_med_n_pills,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(pill_fit)
+
+```
+
+### Medical history: 
+```{r, include=FALSE, echo=TRUE}
+
+# Average systolic BP: significant
+sys_fit <- svyglm(
+  bp_control_140_90 ~ bp_sys_mean,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(sys_fit)
+
+# Average diastolic BP : significant
+dia_fit <- svyglm(
+  bp_control_140_90 ~ bp_dia_mean,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(dia_fit)
+
+# Resistant hypertension: significant
+res_fit <- svyglm(
+  bp_control_140_90 ~ htn_resistant_jnc7,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(res_fit)
+
+
+# Awareness of hypertension : significant
+aware_fit <- svyglm(
+  bp_control_140_90 ~ htn_aware,
+  design = cardio_svy,
+  family = quasibinomial()
+)
+#summary(aware_fit)
+
+```
+
+
+### combine models
+```{r}
+
+svy_models <- list(yr_fit,yr_fit2, yr_fit3, age_fit1, age_fit2, race_fit, gender_fit,
+               smoke_fit, diabet_fit, bmi_fit, ckd_fit, cvd_fit,
+               med_fit, class_fit, pill_fit, res_fit, aware_fit)
+
+tidy_models <- map_dfr(svy_models, ~tidy(.x, conf.int = TRUE, exponentiate = TRUE), .id = "model")%>%
+  filter(term != "(Intercept)")
+
+tidy_models
+
+#write.csv(tidy_models, "./figure/tidy_bivariate_results.csv", row.names = FALSE)
+
+```
+
+
+## Fit multivariable model
+```{r}
+
+## Fit full model with all significant variables
+
+full_model <- svyglm(
+  bp_control_140_90 ~ svy_year2 +
+    demo_age_cat + demo_gender + demo_race +
+    cc_smoke + cc_bmi +
+    cc_diabetes + cc_ckd + cc_cvd_any + 
+    bp_med_n_class2 + bp_med_n_pills2 + htn_aware + htn_resistant_jnc7,
+  design = cardio_svy,
+  family = quasibinomial())
+
+tidy(full_model, conf.int = TRUE, exponentiate = TRUE)
+
+```
+
+
+### Check for multicolinearity
+```{r, warning=FALSE}
+
+# Eliminate cases with missing values
+delete <- which(complete.cases(cardio_dat)==FALSE)
+X2 <- cardio_dat[-delete,]
+
+## Create X matrix from complete case data
+X3 <- model.matrix(~svy_year2 +
+    demo_age_cat + demo_gender + demo_race +
+    cc_smoke + cc_bmi +
+    cc_diabetes + cc_ckd + cc_cvd_any  + bp_med_n_class2 + bp_med_n_pills + htn_aware + htn_resistant_jnc7,
+        data = data.frame(X2))
+
+## Check VIF
+svyvif(mobj=full_model, X=X3[,-1], w = X2$svy_weight_mec, stvar="svy_strata", clvar="svy_psu")
+
+```
+
+
+### Variable selection
+```{r, warning=FALSE}
+
+## Stepwise selection using LRT
+selected_model <- stepwise_model_selection(
+  survey_design = cardio_svy,
+  outcome_variable = "bp_control_140_90",
+  predictor_variables = c("svy_year2","demo_age_cat","demo_gender", "demo_race","cc_smoke","cc_bmi","cc_diabetes","cc_ckd","cc_cvd_any","bp_med_n_class2",  "htn_resistant_jnc7"),
+  model_type = "binary-logistic",
+  max_iterations = 100,
+  alpha_enter = 0.10,
+  alpha_remain = 0.05
+)
+
+tidy(selected_model, conf.int = TRUE, exponentiate = TRUE)
+
+regTermTest(full_model,"demo_gender") ## not significant
+
+```
+
+
+### Final model
+```{r, warning=FALSE}
+
+final_model <- svyglm(
+  bp_control_140_90 ~ svy_year2 +
+    demo_age_cat + demo_race +
+    cc_smoke + cc_bmi +
+    cc_diabetes + cc_ckd + cc_cvd_any  +
+    bp_med_n_class2 +  htn_resistant_jnc7,
+  design = cardio_svy,
+  family = quasibinomial())
+
+#summary(final_model)
+
+tidy(final_model, conf.int = TRUE, exponentiate = TRUE) 
+
+## Check overall parameter significance
+regTermTest(final_model, "bp_med_n_class2")
+
+## Check all parameters in the model for significance
+regTermTest(final_model, ~ svy_year2 +
+    demo_age_cat + demo_race +
+    cc_smoke + cc_bmi +
+    cc_diabetes + cc_ckd + cc_cvd_any  + bp_med_n_class2 + htn_resistant_jnc)
+
+
+```
+
+
+## Model evaluation
+```{r, warning=FALSE}
+
+## Complete case data only 
+complete_svy <- svydesign(
+  id = ~svy_psu,
+  strata = ~svy_strata,
+  weights = ~svy_weight_mec,
+  data = X2,
+  nest = TRUE
+)
+
+
+###################### Compute AUC and ROC plot ######################################
+
+## Get the predicted probabilities
+pred_prob <- as.numeric(predict(final_model, type = "response"))
+
+# Access original outcome from design
+outcome <- complete_svy$variables$bp_control_140_90 
+
+# Access original outcome from design
+weights = complete_svy$variables$svy_weight_mec
+
+
+# Calculate weighted AUC
+weighted_auc_result <- wroc(outcome, pred_prob, weights=weights) 
+
+## Get AUC
+weighted_auc_result$wauc
+
+## ROC plot
+wroc.plot(weighted_auc_result) 
+
+## save file
+#png("./figure/ROC plot.png", width= 800, height= 800)
+
+#wroc.plot(weighted_auc_result) 
+
+#dev.off()
+
+########################## Model fit: Pseudo R-sq ####################################
+
+psrsq(final_model, method = "Nagelkerke") # 0.461
+
+```
+
+## Check for interactions
+```{r}
+
+## subgroup analysis: year by age
+interaction_model <- svyglm(
+  bp_control_140_90 ~ svy_year2*demo_age_cat + demo_race +
+    cc_smoke + cc_bmi +
+    cc_diabetes + cc_ckd + cc_cvd_any  +
+   bp_med_n_class2 +  htn_resistant_jnc7,
+  design = cardio_svy,
+  family = quasibinomial())
+
+#summary(interaction_model)
+
+regTermTest(interaction_model, "svy_year2:demo_age_cat") ## Not significant!
+
+## subgroup analysis: year by race
+interaction_model1 <- svyglm(
+  bp_control_140_90 ~ svy_year2*demo_race + demo_age_cat  + cc_smoke + cc_bmi +
+    cc_diabetes + cc_ckd + cc_cvd_any  + bp_med_n_class2 +  htn_resistant_jnc7,
+  design = cardio_svy,
+  family = quasibinomial())
+
+#summary(interaction_model1)
+
+regTermTest(interaction_model1, "svy_year2:demo_race") ## Not significant!
+
+```
+
+
+## Sensitivity analysis: Missing data
+```{r, include=FALSE, warning=FALSE, echo=TRUE}
+
+## create initial imputation to generate predictor matrix and imp method
+ini = mice(cardio_dat, maxit = 0, print = FALSE)
+pred0 = ini$pred
+pred0
+
+method0 = ini$method
+
+meth_1 <- method0
+meth_1["bp_med_n_pills"] <- "polr"
+meth_1["bp_med_n_class"] <- "polr"
+
+meth_1
+
+```
+
+### Check missingness pattern
+```{r}
+## List the number of missing values per variable 
+ini$nmis
+
+## Assess missing patterns
+md.pattern(cardio_dat,plot = FALSE)
+
+```
+
+
+### Modify the imputation predictor matrix and generate 5 imputations with 5 iterations in each imputation using the modified predictor matrix
+```{r, include=FALSE, warning=FALSE, echo=TRUE}
+
+pred1 = pred0
+pred1[, c("svy_id", "cont_svy_yr", "demo_age_cat","bp_med_n_class2","bp_med_n_pills2", "svy_year2")] = 0
+pred1
+
+set.seed(2032)
+
+imp_1 = mice(cardio_dat, pred = pred1, m = 5, maxit = 5, method = meth_1, print = FALSE, seed = 2045)
+
+```
+
+
+### Fit imputed model
+```{r, warning=FALSE}
+
+imputed_data_list =  complete(imp_1, "long")
+
+imputed_data_list <- as.list(rep(NA, 5))
+for (i in 1:5) {
+  imputed_data_list[[i]] <- complete(imp_1, action = i)
+}
+
+# Create an imputationList object
+imp_list <- imputationList(imputed_data_list)
+
+# Define the survey design for each imputed dataset
+survey_design_mifit <- svydesign(
+  id = ~svy_psu,        
+  strat = ~svy_strata,       
+  weights = ~svy_weight_mec, 
+  data = imp_list,
+  nest = TRUE)
+
+
+## Final imputed model
+fit <- with(
+  survey_design_mifit,
+  svyglm(
+    bp_control_140_90 ~ svy_year2 +
+    demo_age_cat + demo_race +
+    cc_smoke + cc_bmi +
+    cc_diabetes + cc_ckd + cc_cvd_any  +
+    bp_med_n_class2 + htn_resistant_jnc7,
+    design = svydesign(
+      id = ~svy_psu,
+      strata = ~svy_strata,
+      weights = ~svy_weight_mec,
+      nest = TRUE
+    ),
+    family = quasibinomial()
+  )
+)
+
+## pool results
+pooled_results <- pool(fit)
+
+# View the summary of the pooled model
+#summary(pooled_results)
+
+tidy(pooled_results, conf.int=TRUE, exponentiate=TRUE) 
+
+```
+
+
+## Create plots and tables
+```{r, warning=FALSE}
+
+################################### TABLE 3 REGRESSION OUTPUTS #########################################
+## Create a string vector to rename regression terms
+
+term_renames <- c(
+"svy_year22005 - 2010" = "Year: 2005 - 2010",
+"svy_year22011 - 2014" = "Year: 2011 - 2014",
+"svy_year22015 - 2020" = "Year: 2015 - 2020",
+"demo_age_cat45 to 64" = "Age: 45 to 64",
+"demo_age_cat65 to 74" = "Age: 65 to 74",
+"demo_age_cat75+" = "Age: 75+",
+"demo_raceNon-Hispanic Black" = "Race: Non-Hispanic Black",
+"demo_raceHispanic" = "Race: Hispanic",
+"demo_raceNon-Hispanic Asian" = "Race: Non-Hispanic Asian",
+"demo_raceOther" = "Race: Other",
+"cc_smokeFormer" = "Smoking status: Former",
+"cc_smokeCurrent" = "Smoking status: Current",
+"cc_bmi25 to <30" = "BMI: 25 to <30",
+"cc_bmi30 to <35" = "BMI: 30 to <35",
+"cc_bmi35+" = "BMI: 35+",
+"cc_diabetesYes" = "Diabetes: Yes",
+"cc_ckdYes" = "Chronic kidney disease: Yes",
+"cc_cvd_anyYes" = "Any cardiovascular disease: Yes",
+"bp_med_useYes" = "BP medication use: Yes",
+"bp_med_n_classOne" = "1 antihypertensive med",
+"bp_med_n_classTwo" = "2 antihypertensive med",
+"bp_med_n_classTwo or more" = "2 or more antihypertensive med",
+"bp_med_n_classThree" = "3 antihypertensive med",
+"bp_med_n_classFour or more" = "4 antihypertensive med", 
+"htn_resistant_jnc7Yes" = "Resistant hypertension: Yes")
+
+
+# create additional rows for reference groups 
+rows <- tibble::tribble(
+  ~term, ~`complete OR[95% CI]`, ~`imputed OR[95% CI]`,
+  "Year: 1999 - 2004", "ref", "ref",
+  "Age: 18-44", "ref", "ref",
+  "Race: White", "ref", "ref",
+  "Smoking status: Never", "ref", "ref",
+  "BMI: <25", "ref", "ref")
+attr(rows, "position") <- c(1, 5, 9, 14, 17)
+
+## combine results for complete-case and imputed analyses
+tables <- list()
+tables[['Complete cases: OR [95% CI]']]<- final_model
+tables[['Imputed data: OR [95% CI]']]<- pooled_results
+
+## table
+reg_tab2 <- modelsummary(
+  tables,
+  output = "flextable",
+  exponentiate= TRUE,
+  estimate = "{estimate} [{conf.low}, {conf.high}]",
+  title = "Pooled survey logistic regression results for BP control trend", 
+  stars = TRUE,
+  coef_omit = c(1, 20, 21), 
+  coef_rename = term_renames,
+  gof_omit = ".*", ## drop num obs, num of imp etc.
+  add_rows = rows,
+  statistic=NULL,
+  fmt =  fmt_sprintf("%.3f")) |> autofit()
+
+reg_tab2
+
+#flextable::save_as_docx(reg_tab2, path ="./figure/full_reg_table.docx")
+
+
+################################### FIGURE 4 REGRESSION OUTPUTS #########################################
+
+## combine results for complete-case and imputed analyses
+models <- list()
+models[['complete cases']] <- final_model
+models[['imputed data']] <- pooled_results
+
+## Create forest plot 
+reg_plot1 <- modelplot(models, 
+                       exponentiate = TRUE, 
+                       coef_omit = c(1, 20, 21), 
+                       coef_rename = term_renames)+
+  theme_bw() +
+  xlab("Odds Ratios and 95% confidence intervals")
+
+reg_plot1
+
+#ggsave("./figure/reg_forest_plot.png", plot = reg_plot1, width = 8, height = 6, dpi = 300)
+
+```
+
