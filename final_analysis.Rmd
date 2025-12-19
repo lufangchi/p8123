@@ -2,7 +2,7 @@
 title: "Final analysis"
 author: "Wuraola"
 date: "2025-12-17"
-output: html_document
+output: word_document
 ---
 
 ```{r setup, include=FALSE}
@@ -716,40 +716,40 @@ tidy(pooled_results, conf.int=TRUE, exponentiate=TRUE)
 ```{r, warning=FALSE}
 
 ## Create regression table for narginal model for year
-yr_model <- list()
-yr_model[['Odds Ratio [95% CI]']]<- yr_fit
-
-yr_renames <- c(
-"svy_year2001-2002" = "Year: 2001 - 2002",
-"svy_year2003-2004" = "Year: 2003 - 2004",
-"svy_year2005-2006" = "Year: 2005 - 2006",
-"svy_year2007-2008" = "Year: 2007 - 2008",
-"svy_year2009-2010" = "Year: 2009 - 2010",
-"svy_year2011-2012" = "Year: 2011 - 2012",
-"svy_year2013-2014" = "Year: 2013 - 2014",
-"svy_year2015-2016" = "Year: 2015 - 2016",
-"svy_year2017-2020" = "Year: 2017 - 2020")
-
-row_yr <- tibble::tribble(
-  ~term, ~`OR[95% CI]`,
-  "Year: 1999 - 2000", "ref")
-attr(row_yr, "position") <- c(1)
-
-reg_tab1 <- modelsummary(
-  yr_model,
-  #output = "flextable",
-  exponentiate= TRUE,
-  estimate = "{estimate} [{conf.low}, {conf.high}]",
-  title = "Survey logistic regression results for BP control trend over time", 
-  stars = TRUE,
-  coef_omit = c(1), 
-  coef_rename = yr_renames,
-  gof_omit = ".*", ## drop num obs, num of imp etc.
-  add_rows = row_yr,
-  statistic=NULL,
-  fmt =  fmt_sprintf("%.3f")) #|> autofit()
-
-reg_tab1
+#yr_model <- list()
+#yr_model[['Odds Ratio [95% CI]']]<- yr_fit
+#
+#yr_renames <- c(
+#"svy_year2001-2002" = "Year: 2001 - 2002",
+#"svy_year2003-2004" = "Year: 2003 - 2004",
+#"svy_year2005-2006" = "Year: 2005 - 2006",
+#"svy_year2007-2008" = "Year: 2007 - 2008",
+#"svy_year2009-2010" = "Year: 2009 - 2010",
+#"svy_year2011-2012" = "Year: 2011 - 2012",
+#"svy_year2013-2014" = "Year: 2013 - 2014",
+#"svy_year2015-2016" = "Year: 2015 - 2016",
+#"svy_year2017-2020" = "Year: 2017 - 2020")
+#
+#row_yr <- tibble::tribble(
+#  ~term, ~`OR[95% CI]`,
+#  "Year: 1999 - 2000", "ref")
+#attr(row_yr, "position") <- c(1)
+#
+#reg_tab1 <- modelsummary(
+#  yr_model,
+#  #output = "flextable",
+#  exponentiate= TRUE,
+#  estimate = "{estimate} [{conf.low}, {conf.high}]",
+#  title = "Survey logistic regression results for BP control trend over #time", 
+#  stars = TRUE,
+#  coef_omit = c(1), 
+#  coef_rename = yr_renames,
+#  gof_omit = ".*", ## drop num obs, num of imp etc.
+#  add_rows = row_yr,
+#  statistic=NULL,
+#  fmt =  fmt_sprintf("%.3f")) #|> autofit()
+#
+#reg_tab1
 
 #flextable::save_as_docx(reg_tab1, path="./figure/year_reg_table.docx")
 
@@ -801,7 +801,7 @@ tables[['Imputed data: OR [95% CI]']]<- pooled_results
 
 reg_tab2 <- modelsummary(
   tables,
-  #output = "flextable",
+  output = "flextable",
   exponentiate= TRUE,
   estimate = "{estimate} [{conf.low}, {conf.high}]",
   title = "Pooled survey logistic regression results for BP control trend", 
