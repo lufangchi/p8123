@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 # Load packages
-```{r include=FALSE, warning=FALSE, message=FALSE, echo=TRUE}
+```{r warning=FALSE, message=FALSE, echo=TRUE,results='hide'}
 
 library(cardioStatsUSA)
 library(tidyverse)
@@ -39,7 +39,7 @@ library(gtsummary)
 
 
 # Load and extract data 
-```{r data, include=FALSE, echo=TRUE}
+```{r data, results='hide', echo=TRUE}
 
 ########################### DATA EXPLORATION #########################################
 
@@ -130,7 +130,7 @@ colnames(df_analysis)
 
 
 # Data wrangling and EDA
-```{r, include=FALSE, echo=TRUE}
+```{r, results='hide', echo=TRUE}
 
 str(df_analysis)
 
@@ -384,7 +384,7 @@ sum(cardio_dat$svy_weight_mec) # weight is not scaled
 # Analysis
 ## Bivariate relationships
 ### Year
-```{r, include=FALSE, echo=TRUE}
+```{r, results='hide', echo=TRUE}
 
 # Original categorical year
 yr_fit <- svyglm(
@@ -414,7 +414,7 @@ yr_fit3 <- svyglm(
 
 
 ### Demographics
-```{r, include=FALSE, echo=TRUE}
+```{r, results='hide', echo=TRUE}
 # Age categorical
 age_fit1 <- svyglm(
   bp_control_140_90 ~ demo_age_cat,
@@ -455,7 +455,7 @@ gender_fit <- svyglm(
 ```
 
 ### Health behaviors, prior diagnoses and medication use
-```{r, include=FALSE, echo=TRUE}
+```{r, results='hide', echo=TRUE}
 
 # Smoking : significant
 smoke_fit <- svyglm(
@@ -529,7 +529,7 @@ pill_fit <- svyglm(
 ```
 
 ### Medical history: 
-```{r, include=FALSE, echo=TRUE}
+```{r, results='hide', echo=TRUE}
 
 # Average systolic BP: significant
 sys_fit <- svyglm(
@@ -751,7 +751,7 @@ regTermTest(interaction_model1, "svy_year2:demo_race") ## Not significant!
 
 
 ## Sensitivity analysis: Missing data
-```{r, include=FALSE, warning=FALSE, echo=TRUE}
+```{r, results='hide', warning=FALSE, echo=TRUE}
 
 ## create initial imputation to generate predictor matrix and imp method
 ini = mice(cardio_dat, maxit = 0, print = FALSE)
@@ -780,7 +780,7 @@ md.pattern(cardio_dat,plot = FALSE)
 
 
 ### Modify the imputation predictor matrix and generate 5 imputations with 5 iterations in each imputation using the modified predictor matrix
-```{r, include=FALSE, warning=FALSE, echo=TRUE}
+```{r, results='hide', warning=FALSE, echo=TRUE}
 
 pred1 = pred0
 pred1[, c("svy_id", "cont_svy_yr", "demo_age_cat","bp_med_n_class2","bp_med_n_pills2", "svy_year2")] = 0
